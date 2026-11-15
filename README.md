@@ -24,7 +24,7 @@ implied = round(tvl_usd x category_multiple
 
 **Who gets ranked** mirrors the watchlist's own definition: pre-token only, leaving out the CEX, Bridge, Canonical Bridge, Liquid Staking, Liquid Restaking and Restaked BTC categories, version-marked names, names carrying a whole word `wrapped` / `staked` / `staking` / `restaking` / `restaked`, and names beginning with an exchange name. A wrapped, staked or bridged product of a token that already trades is never ranked as a launch candidate — WBTC is Bitcoin on Ethereum, not a protocol still waiting on a launch.
 
-**Farm plans** give each protocol seven steps, built from its category, chains, TVL and age: a fresh wallet, a category-specific main action with capital and gas, a second distinct qualifying action, a weekly cadence, a hold period, a points-page check, and a farm log. Every step states its cost and time.
+**Farm plans** give each protocol seven steps, built from its category, chains, TVL and age: a fresh wallet, a category-specific main action with capital and gas, a second distinct qualifying action, a category-specific weekly action, a hold period, a category-specific rewards check, and a farm log. Every step states its cost and time.
 
 **The dashboard** (`dashboard/`) is a static page with no network: a sortable, filterable board (search, category, chain), a Live token view that sets the already-trading protocols aside with their market caps, a per-protocol detail drawer that recomputes the row from the snapshot figures and checks it against `board.json`, plus the model formula and the full category-calibration table.
 

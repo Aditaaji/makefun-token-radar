@@ -120,6 +120,52 @@
     if (c.indexOf('privacy') >= 0) return 'Withdraw a small amount from the ' + name + ' pool and deposit it back.';
     return 'Do one more distinct action on ' + name + ', such as a swap, a vote or a second deposit.';
   }
+  function weeklyActionFor(p, capital, chain) {
+    var c = (p.category || '').toLowerCase();
+    var name = p.name;
+    var small = Math.max(10, Math.round(capital / 5));
+    if (c.indexOf('lend') >= 0 || c.indexOf('cdp') >= 0 || c.indexOf('collateral') >= 0) return 'Each week, supply $' + small + ' more to ' + name + ' or borrow $' + small + ' against the supply and repay it.';
+    if (c.indexOf('dex') >= 0 || c.indexOf('yield') >= 0 || c.indexOf('leveraged farm') >= 0 || c.indexOf('farm') >= 0) return "Each week, collect the fees " + name + "'s pool earned and compound them back in.";
+    if (c.indexOf('bridge') >= 0) return 'Each week, bridge $' + small + ' to ' + chain + ' through ' + name + ' and use the bridged funds.';
+    if (c.indexOf('staking') >= 0 || c.indexOf('restak') >= 0) return 'Each week, top up the stake on ' + name + ' by $' + small + '.';
+    if (c.indexOf('perpetual') >= 0 || c.indexOf('derivative') >= 0 || c.indexOf('basis') >= 0) return 'Each week, open one small hedge on ' + name + ' and close it before the week ends.';
+    if (c.indexOf('prediction') >= 0) return 'Each week, place a $10 market position on ' + name + ' in a market closing that week.';
+    if (c.indexOf('curator') >= 0 || c.indexOf('allocator') >= 0) return "Each week, check the " + name + " vaults' yields and move $" + small + ' to the highest-yielding vault on ' + chain + '.';
+    if (c.indexOf('stable') >= 0) return 'Each week, move $' + small + ' of the stable asset through ' + name + ' into a yield venue on ' + chain + '.';
+    if (c.indexOf('rwa') >= 0) return 'Each week, mint $' + small + ' more of the ' + name + ' yield asset on ' + chain + ' and hold it.';
+    if (c.indexOf('insurance') >= 0) return 'Each week, check the ' + name + ' cover on ' + chain + ' and extend it before it lapses.';
+    if (c.indexOf('options') >= 0) return 'Each week, add $' + small + ' to the ' + name + ' options vault on ' + chain + ' and keep the shares.';
+    if (c.indexOf('index') >= 0) return 'Each week, buy $' + small + ' more of the ' + name + ' index on ' + chain + ' and hold it.';
+    if (c.indexOf('payment') >= 0 || c.indexOf('card') >= 0) return 'Each week, top up the ' + name + ' balance by $' + small + ' and spend it from the balance.';
+    if (c.indexOf('chain') >= 0) return 'Each week, use a native app on ' + chain + ' through ' + name + ' that you have not used yet.';
+    if (c.indexOf('privacy') >= 0) return 'Each week, move $' + small + ' between two shielded pools on ' + name + '.';
+    return 'Each week, make one qualifying action on ' + name + ', such as a deposit, a borrow, a swap or a vote.';
+  }
+  function weeklyCostFor(p) {
+    var c = (p.category || '').toLowerCase();
+    if (c.indexOf('insurance') >= 0) return 'the weekly premium, plus about $2 of gas';
+    return 'about $2 of gas a week';
+  }
+  function rewardsActionFor(p) {
+    var c = (p.category || '').toLowerCase();
+    var name = p.name;
+    if (c.indexOf('lend') >= 0 || c.indexOf('cdp') >= 0 || c.indexOf('collateral') >= 0) return "Check " + name + "'s rewards page for supply and borrow incentives and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('dex') >= 0 || c.indexOf('yield') >= 0 || c.indexOf('leveraged farm') >= 0 || c.indexOf('farm') >= 0) return "Check " + name + "'s points page for LP and swap quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('bridge') >= 0) return "Check " + name + "'s rewards page for bridge quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('staking') >= 0 || c.indexOf('restak') >= 0) return "Check " + name + "'s staking page for staking quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('perpetual') >= 0 || c.indexOf('derivative') >= 0 || c.indexOf('basis') >= 0) return "Check " + name + "'s trading rewards page for volume quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('prediction') >= 0) return "Check " + name + "'s rewards page for market quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('curator') >= 0 || c.indexOf('allocator') >= 0) return "Check " + name + "'s vault rewards page for deposit quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('stable') >= 0) return "Check " + name + "'s rewards page for stable-mint quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('rwa') >= 0) return "Check " + name + "'s rewards page for holding quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('insurance') >= 0) return "Check " + name + "'s rewards page for cover quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('options') >= 0) return "Check " + name + "'s vault rewards page for deposit quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('index') >= 0) return "Check " + name + "'s rewards page for holding quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('payment') >= 0 || c.indexOf('card') >= 0) return "Check " + name + "'s rewards page for spend quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('chain') >= 0) return "Check " + name + "'s ecosystem quests page for ecosystem quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    if (c.indexOf('privacy') >= 0) return "Check " + name + "'s rewards page for pool quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+    return "Once a week open the protocol's own points or rewards page and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.";
+  }
   function stepText(step) {
     var s = step.text + ' Cost: ' + step.cost + '. Time: ' + step.time + '.';
     if (s.length > 600) s = s.slice(0, 596) + '...';
@@ -134,9 +180,9 @@
       { text: 'Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.', cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
       { text: actionFor(p, capital, chain), cost: '$' + capital + ' of capital and about $' + (capital >= 150 ? 8 : 4) + ' of gas', time: '15 minutes to set up' },
       { text: secondActionFor(p, capital, chain), cost: 'about $' + (capital >= 150 ? 5 : 2) + ' of gas', time: '10 minutes' },
-      { text: 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.', cost: 'about $2 of gas a week', time: '10 minutes a week' },
+      { text: weeklyActionFor(p, capital, chain), cost: weeklyCostFor(p), time: '10 minutes a week' },
       { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot.', cost: 'the $' + capital + ' stays in the position', time: hold + ' days' },
-      { text: "Once a week open the protocol's own points or rewards page and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.", cost: 'no fee to check', time: '10 minutes a week' },
+      { text: rewardsActionFor(p), cost: 'no fee to check', time: '10 minutes a week' },
       { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.', cost: 'nothing but the log', time: '5 minutes' }
     ].map(stepText);
   }
@@ -201,7 +247,7 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by implied value' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' pre-token protocols below that floor. Each category is priced at the median market-cap-to-TVL of the live protocols in it, so a lending protocol is not priced like a DEX. Implied value is a model, not a promise.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' pre-token protocols below that floor. A category with at least three live protocols is priced at the median market-cap-to-TVL of those protocols; the rest use the median across every live protocol, so a lending protocol is not priced like a DEX. Implied value is a model, not a promise.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
@@ -381,7 +427,7 @@
     var recomputed = impliedOf(row, DATA.model);
     var calNote = row.calibration_source === 'category'
       ? 'median of ' + row.calibration_n + ' live ' + (row.category || 'Other') + ' protocols'
-      : 'fallback: median of every live protocol';
+      : 'fallback: median of all live protocols';
     dialog.appendChild(el('div', { class: 'detail-head' },
       el('div', null,
         el('span', { class: 'brand-name', text: 'Rank ' + row.rank + ' of ' + DATA.board_size + (WATCHLIST[row.slug] ? ' - Watchlist' : '') }),

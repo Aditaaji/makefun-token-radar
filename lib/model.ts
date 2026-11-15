@@ -432,11 +432,14 @@ function holdDaysFor(age: number | null): number {
 }
 
 /** The category's main action, phrased so a farmer can follow it. */
-/** One category rule: how to spot the category, and the two actions that farm it. */
+/** One category rule: how to spot the category, and the four actions that farm it. */
 interface CategoryRule {
   match: (category: string) => boolean;
   main: (name: string, capital: number, chain: string) => string;
   second: (name: string, capital: number, chain: string, small: number) => string;
+  weekly: (name: string, capital: number, chain: string, small: number) => string;
+  weeklyCost: string;
+  rewards: (name: string) => string;
 }
 
 /** Whether a lowercased category contains any of these words. */
@@ -453,81 +456,129 @@ const CATEGORY_RULES: CategoryRule[] = [
     match: (c) => hasAny(c, ['lend', 'cdp', 'collateral']),
     main: (name, capital, chain) => `Supply $${capital} of USDC to ${name} on ${chain} and keep the position open.`,
     second: (name, capital, chain, small) => `Borrow $${small} against the supply on ${name}, then repay it in the same week.`,
+    weekly: (name, capital, chain, small) => `Each week, supply $${small} more to ${name} or borrow $${small} against the supply and repay it.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s rewards page for supply and borrow incentives and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['dex', 'yield', 'leveraged farm', 'farm']),
     main: (name, capital, chain) => `Provide $${capital} of liquidity to ${name}'s main pool on ${chain} and keep the position open.`,
     second: (name, capital, chain) => `Make one swap through ${name}'s main pool on ${chain} for about $10 of volume.`,
+    weekly: (name, capital, chain, small) => `Each week, collect the fees ${name}'s pool earned and compound them back in.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s points page for LP and swap quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['bridge']),
     main: (name, capital, chain) => `Bridge $${capital} of USDC to ${chain} through ${name} and use the bridged funds in its app.`,
     second: (name) => `Bridge a small amount back through ${name} so the round trip is on record.`,
+    weekly: (name, capital, chain, small) => `Each week, bridge $${small} to ${chain} through ${name} and use the bridged funds.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s rewards page for bridge quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['staking', 'restak']),
     main: (name, capital) => `Stake $${capital} of the chain's staking asset through ${name} and keep the receipt.`,
     second: (name) => `Claim the staking rewards ${name} shows and restake them in the same position.`,
+    weekly: (name, capital, chain, small) => `Each week, top up the stake on ${name} by $${small}.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s staking page for staking quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['perpetual', 'derivative', 'basis']),
     main: (name, capital) => `Deposit $${capital} of USDC as margin on ${name} and open one small hedge.`,
     second: (name) => `Close the hedge on ${name} and open a fresh one half its size.`,
+    weekly: (name, capital, chain, small) => `Each week, open one small hedge on ${name} and close it before the week ends.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s trading rewards page for volume quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['prediction']),
     main: (name, capital) => `Fund $${capital} and place one market position on ${name}.`,
     second: (name) => `Settle one market on ${name} and place a second position in another.`,
+    weekly: (name, capital, chain, small) => `Each week, place a $10 market position on ${name} in a market closing that week.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s rewards page for market quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['curator', 'allocator']),
     main: (name, capital, chain) => `Deposit $${capital} into a ${name} vault on ${chain} and keep the shares.`,
     second: (name, capital, chain, small) => `Move $${small} into a second ${name} vault on ${chain}.`,
+    weekly: (name, capital, chain, small) => `Each week, check the ${name} vaults' yields and move $${small} to the highest-yielding vault on ${chain}.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s vault rewards page for deposit quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['stable']),
     main: (name, capital, chain) => `Mint or deposit $${capital} of the stable asset through ${name} on ${chain}.`,
     second: (name) => `Redeem a small part of the stable position on ${name} and mint it back.`,
+    weekly: (name, capital, chain, small) => `Each week, move $${small} of the stable asset through ${name} into a yield venue on ${chain}.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s rewards page for stable-mint quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['rwa']),
     main: (name, capital, chain) => `Mint $${capital} of the protocol's yield asset on ${chain} and hold it.`,
     second: (name) => `Claim the yield the ${name} asset accrued and hold the rest.`,
+    weekly: (name, capital, chain, small) => `Each week, mint $${small} more of the ${name} yield asset on ${chain} and hold it.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s rewards page for holding quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['insurance']),
     main: (name, capital, chain) => `Buy $${capital} of cover from ${name} on ${chain} and keep the policy.`,
     second: (name) => `File one test claim on ${name} to learn the flow, then keep the policy.`,
+    weekly: (name, capital, chain, small) => `Each week, check the ${name} cover on ${chain} and extend it before it lapses.`,
+    weeklyCost: 'the weekly premium, plus about $2 of gas',
+    rewards: (name) => `Check ${name}'s rewards page for cover quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['options']),
     main: (name, capital, chain) => `Deposit $${capital} into an ${name} options vault on ${chain} and keep the shares.`,
     second: (name) => `Roll one options position in the ${name} vault to the next expiry.`,
+    weekly: (name, capital, chain, small) => `Each week, add $${small} to the ${name} options vault on ${chain} and keep the shares.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s vault rewards page for deposit quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['index']),
     main: (name, capital, chain) => `Buy $${capital} of the ${name} index on ${chain} and hold it.`,
     second: (name) => `Rebalance the ${name} index holding once, then hold it again.`,
+    weekly: (name, capital, chain, small) => `Each week, buy $${small} more of the ${name} index on ${chain} and hold it.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s rewards page for holding quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['payment', 'card']),
     main: (name, capital, chain) => `Top up $${capital} through ${name} on ${chain} and spend from the balance.`,
     second: (name) => `Make one purchase with the ${name} balance and top it up again.`,
+    weekly: (name, capital, chain, small) => `Each week, top up the ${name} balance by $${small} and spend it from the balance.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s rewards page for spend quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['chain']),
     main: (name, capital, chain) => `Bridge $${capital} to ${chain} and use one native app on it through ${name}.`,
     second: (name, capital, chain) => `Use a second native app on ${chain} through ${name} in the same week.`,
+    weekly: (name, capital, chain, small) => `Each week, use a native app on ${chain} through ${name} that you have not used yet.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s ecosystem quests page for ecosystem quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: (c) => hasAny(c, ['privacy']),
     main: (name, capital, chain) => `Deposit $${capital} into ${name}'s shielded pool on ${chain} and keep the receipt.`,
     second: (name) => `Withdraw a small amount from the ${name} pool and deposit it back.`,
+    weekly: (name, capital, chain, small) => `Each week, move $${small} between two shielded pools on ${name}.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Check ${name}'s rewards page for pool quests and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
   {
     match: () => true,
     main: (name, capital, chain) => `Deposit $${capital} of USDC into ${name} on ${chain} and keep the position open.`,
     second: (name) => `Do one more distinct action on ${name}, such as a swap, a vote or a second deposit.`,
+    weekly: (name, capital, chain, small) => `Each week, make one qualifying action on ${name}, such as a deposit, a borrow, a swap or a vote.`,
+    weeklyCost: 'about $2 of gas a week',
+    rewards: (name) => `Once a week open the protocol's own points or rewards page and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
   },
 ];
 
@@ -551,9 +602,27 @@ function secondActionFor(p: SnapshotProtocol, capital: number, chain: string): s
   return ruleFor(p.category).second(p.name, capital, chain, small);
 }
 
+/** The category's weekly action: a small repeatable touch, so the plan keeps working week after week. */
+function weeklyActionFor(p: SnapshotProtocol, capital: number, chain: string): string {
+  const small = Math.max(10, Math.round(capital / 5));
+  return ruleFor(p.category).weekly(p.name, capital, chain, small);
+}
+
+/** The weekly action's cost, which the rule states because a premium is not gas. */
+function weeklyCostFor(p: SnapshotProtocol): string {
+  return ruleFor(p.category).weeklyCost;
+}
+
+/** The category's rewards check: which page to watch and what to follow there. */
+function rewardsActionFor(p: SnapshotProtocol): string {
+  return ruleFor(p.category).rewards(p.name);
+}
+
 /**
  * One protocol's farm plan: seven steps, each an action with a cost and a time. The plan is derived
  * from the protocol's own record (category, chains, TVL, age), never from a hand-written list of names.
+ * Steps 2, 3, 4 and 6 are category-specific; steps 1, 5 and 7 keep the same shape for every protocol
+ * because wallet hygiene, the hold and the log do not depend on the category.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const chain = chainOf(p);
@@ -576,8 +645,8 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       time: '10 minutes',
     },
     {
-      text: `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.`,
-      cost: 'about $2 of gas a week',
+      text: weeklyActionFor(p, capital, chain),
+      cost: weeklyCostFor(p),
       time: '10 minutes a week',
     },
     {
@@ -586,7 +655,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       time: `${hold} days`,
     },
     {
-      text: `Once a week open the protocol's own points or rewards page and follow only the quests it lists there; never pay to claim and never use a link from a chat or a post.`,
+      text: rewardsActionFor(p),
       cost: 'no fee to check',
       time: '10 minutes a week',
     },
