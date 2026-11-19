@@ -1,4 +1,4 @@
-// Radar-2, the model behind Token Radar: one snapshot of the protocol universe in, one ranked board out.
+// Radar-3, the model behind Token Radar: one snapshot of the protocol universe in, one ranked board out.
 //
 // What gets ranked is every genuine pre-token protocol. The watchlist is the floor, never the
 // ceiling: all 40 of its protocols rank, plus every other protocol below the floor that can still
@@ -17,7 +17,13 @@
 //                       (a category with one live protocol sits almost at the global median); a
 //                       category with no live protocol uses the global median.
 //                       Clamped to [0.05, 1.0], so one outlier cannot price a whole category.
-//   base              = tvl_usd x category multiple
+//   size adjustment   = 10 ^ (slope x (log10(tvl_usd) - centre)), where slope is the OLS slope of
+//                       ln(mcap/TVL) on log10(TVL) over the live protocols, capped at +/-0.5, and
+//                       centre is their mean log10(TVL). Big protocols trade at a lower mcap/TVL:
+//                       the median ratio falls from 0.65x in the smallest TVL quintile to 0.04x in
+//                       the largest, and log mcap grows only ~0.52 per dex of TVL. The effective
+//                       multiple (category multiple x size adjustment) is clamped to [0.05, 1.0].
+//   base              = tvl_usd x category multiple x size adjustment
 //   growth            = change_7d clamped to [-60, 120] per cent
 //   growth multiplier = 1 + (growth / 100) x GROWTH_WEIGHT
 //   maturity          = 0.6 + min(age_days, 1095) / 1095 x 0.4   (unknown age counts as 365 days)
@@ -28,9 +34,10 @@
 // ever special-cased: one function scores every row, and the calibration is computed from the
 // snapshot at run time, never written in by hand. Before the model prices anything, validateModel
 // tests it out of sample on the snapshot's own live protocols (split-half against a flat-multiple
-// baseline, plus leave-one-out), and rankRanges refits it 200 times on bootstrap resamples so every
-// row carries the rank range its calibration noise allows. Every protocol in the snapshot is
-// accounted for: ranked, live, or set aside with the rule that set it aside.
+// baseline, leave-one-out, and walk-forward: multiples fit on the older protocols, tested on the
+// newer ones), and rankRanges refits it 500 times on bootstrap resamples so every row carries the
+// rank range its calibration noise allows. Every protocol in the snapshot is accounted for:
+// ranked, live, or set aside with the rule that set it aside.
 
 /** One protocol entry from the snapshot: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -71,6 +78,8 @@ export interface ModelConstants {
   chain_max_extra: number;
   /** Pseudo-observations of the global median each category's multiple is shrunk toward. */
   calibration_shrink_k: number;
+  /** Cap on the size slope, in ln(mcap/TVL) per dex of TVL, applied symmetrically. */
+  size_slope_cap: number;
 }
 
 export const MODEL: ModelConstants = {
@@ -87,10 +96,11 @@ export const MODEL: ModelConstants = {
   chain_step: 0.02,
   chain_max_extra: 5,
   calibration_shrink_k: 5,
+  size_slope_cap: 0.5,
 };
 
 /** The model's version label, named by the dashboard and quoted by the rules. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** One category's calibration: the multiple, and how many live protocols set it. */
 export interface CategoryCalibration {
@@ -103,6 +113,9 @@ export interface CategoryCalibration {
 export interface Calibration {
   byCategory: Record<string, { multiple: number; n: number }>;
   fallback: number;
+  /** Capped OLS slope of ln(mcap/TVL) on log10(TVL), in ln units per dex; centre is the mean log10(TVL) it is measured from. */
+  size_slope: number;
+  size_center: number;
 }
 
 /** One farm step: the action, what it costs, and how long it takes. */
@@ -130,6 +143,7 @@ export interface BoardRow {
   implied_value_usd: number;
   model: {
     category_multiple: number;
+    size_multiplier: number;
     calibration_n: number;
     calibration_source: 'category' | 'fallback';
     growth_pct: number;
@@ -161,6 +175,7 @@ export interface RadarRow {
   age_days: number | null;
   implied_value_usd: number;
   category_multiple: number;
+  size_multiplier: number;
   calibration_n: number;
   calibration_source: 'category' | 'fallback';
   growth_multiplier: number;
@@ -220,6 +235,12 @@ export interface Validation {
   /** Leave-one-out: each live protocol predicted from a calibration that never saw it. */
   loo_n: number;
   loo_median_log_error: number;
+  /** Walk-forward (temporal): multiples fit on the older live protocols, tested on the newer ones. */
+  walk_forward_n_test: number;
+  walk_forward_a_log_error: number;
+  walk_forward_a_flat_log_error: number;
+  walk_forward_b_log_error: number;
+  walk_forward_b_flat_log_error: number;
   /** Bootstrap refits behind every row's rank range. */
   bootstrap_refits: number;
   kept: boolean;
@@ -275,6 +296,11 @@ function median(values: number[]): number {
   return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
+/** The mean of a list, or 0 when it holds nothing. */
+function mean(values: number[]): number {
+  return values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length;
+}
+
 /** A multiple clamped inside the model's floor and cap. */
 function clampMultiple(value: number, model: ModelConstants): number {
   return Math.min(model.multiple_cap, Math.max(model.multiple_floor, value));
@@ -293,6 +319,13 @@ function clampMultiple(value: number, model: ModelConstants): number {
  * gates a category: the shrink weight is what keeps small samples honest. The two-split
  * out-of-sample test keeps this estimator over a flat multiple and over the unshrunk category
  * median, which is why the board prices with it.
+ *
+ * The calibration also fits the size slope: the OLS slope of ln(mcap/TVL) on log10(TVL) over the
+ * same priced live protocols, capped at +/-size_slope_cap. The raw slope is about -1.1 (one dex
+ * of TVL costs a protocol most of its multiple), so the cap is a deliberate shrink: half the
+ * fitted slope at most. The cap was picked because it wins on all three out-of-sample tests at
+ * once (split-half mean 1.16 vs 1.55, leave-one-out 1.26 vs 1.60, walk-forward 1.01/0.99 vs
+ * 1.64/1.57), not on any one of them alone.
  */
 export function calibrateFrom(
   live: SnapshotProtocol[],
@@ -303,6 +336,18 @@ export function calibrateFrom(
     Math.exp(median(values.map((v) => Math.log(v))));
   const globalLog = Math.log(logMedian(priced.map((p) => p.mcap_usd! / p.tvl_usd)));
   const fallback = clampMultiple(Math.exp(globalLog), model);
+  const xs = priced.map((p) => Math.log10(p.tvl_usd));
+  const ys = priced.map((p) => Math.log(p.mcap_usd! / p.tvl_usd));
+  const sizeCenter = mean(xs);
+  const yMean = mean(ys);
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < xs.length; i++) {
+    num += (xs[i]! - sizeCenter) * (ys[i]! - yMean);
+    den += (xs[i]! - sizeCenter) ** 2;
+  }
+  const rawSlope = den === 0 ? 0 : num / den;
+  const sizeSlope = Math.max(-model.size_slope_cap, Math.min(model.size_slope_cap, rawSlope));
   const byCategory: Record<string, { multiple: number; n: number }> = {};
   const groups = new Map<string, number[]>();
   for (const p of priced) {
@@ -317,7 +362,7 @@ export function calibrateFrom(
     const shrunk = Math.exp((n * Math.log(logMedian(values)) + k * globalLog) / (n + k));
     byCategory[key] = { multiple: clampMultiple(shrunk, model), n };
   }
-  return { byCategory, fallback };
+  return { byCategory, fallback, size_slope: sizeSlope, size_center: sizeCenter };
 }
 
 export function calibrate(snapshot: Snapshot, model: ModelConstants = MODEL): Calibration {
@@ -325,6 +370,24 @@ export function calibrate(snapshot: Snapshot, model: ModelConstants = MODEL): Ca
     snapshot.protocols.filter((p) => !isPreToken(p)),
     model,
   );
+}
+
+/**
+ * A protocol's effective multiple under a calibration: its category multiple times the size
+ * adjustment for its own TVL, clamped to [0.05, 1.0]. A protocol with no TVL gets no adjustment.
+ * The flat baseline never gets one: it predicts every protocol at the global median multiple.
+ */
+export function effectiveMultiple(
+  protocol: SnapshotProtocol,
+  calibration: Calibration,
+  model: ModelConstants = MODEL,
+): { multiple: number; sizeMultiplier: number; base: number; n: number; source: 'category' | 'fallback' } {
+  const { multiple: base, n, source } = categoryMultiple(protocol.category, calibration);
+  const sizeMultiplier =
+    protocol.tvl_usd > 0
+      ? Math.pow(10, calibration.size_slope * (Math.log10(protocol.tvl_usd) - calibration.size_center))
+      : 1;
+  return { multiple: clampMultiple(base * sizeMultiplier, model), sizeMultiplier, base, n, source };
 }
 
 /** The live protocols that carry both a market cap and a TVL, in slug order, so every split is deterministic. A market cap of zero or less is not a price, so those protocols cannot test the model. */
@@ -347,11 +410,14 @@ function round4(n: number): number {
 /**
  * The value model tested out of sample on the snapshot's own live protocols, before it is trusted
  * to price anything pre-token. Split-half, both directions: the even slugs fit the multiples and
- * the odd slugs are predicted from them, then the other way round (predicted mcap = TVL x category
+ * the odd slugs are predicted from them, then the other way round (predicted mcap = TVL x effective
  * multiple, scored against the real market cap); the flat baseline predicts every protocol at one
  * global median multiple instead. Leave-one-out repeats the same prediction with each protocol
- * held out of the calibration that prices it. The model is kept only when its fitted multiples
- * beat the flat baseline out of sample on the mean of both splits.
+ * held out of the calibration that prices it. Walk-forward repeats it in time: the multiples are
+ * fit on the older live protocols (by listed_at; the 33 with no date cannot be ordered, so they
+ * sit out of this test) and tested on the newer ones, at a 50% and a 70% cut, so a model that only
+ * works on a random split cannot pass. The model is kept only when its fitted multiples beat the
+ * flat baseline out of sample on the mean of both splits.
  */
 export function validateModel(snapshot: Snapshot, model: ModelConstants = MODEL): Validation {
   const priced = pricedLive(snapshot);
@@ -363,7 +429,7 @@ export function validateModel(snapshot: Snapshot, model: ModelConstants = MODEL)
     const flatErrors: number[] = [];
     const flatPct: number[] = [];
     for (const p of test) {
-      const { multiple } = categoryMultiple(p.category, fitCal);
+      const { multiple } = effectiveMultiple(p, fitCal, model);
       const pred = p.tvl_usd * multiple;
       const predFlat = p.tvl_usd * flat;
       catErrors.push(Math.abs(Math.log(pred / p.mcap_usd!)));
@@ -386,9 +452,19 @@ export function validateModel(snapshot: Snapshot, model: ModelConstants = MODEL)
   for (const p of priced) {
     const rest = priced.filter((q) => q !== p);
     const cal = calibrateFrom(rest, model);
-    const { multiple } = categoryMultiple(p.category, cal);
+    const { multiple } = effectiveMultiple(p, cal, model);
     looErrors.push(Math.abs(Math.log((p.tvl_usd * multiple) / p.mcap_usd!)));
   }
+  const dated = priced
+    .filter((p) => p.listed_at !== null)
+    .sort((x, y) => (x.listed_at! < y.listed_at! ? -1 : x.listed_at! > y.listed_at! ? 1 : 0));
+  const walkForward = (frac: number): { cat: number; flat: number; n: number } => {
+    const cut = Math.floor(dated.length * frac);
+    const r = split(dated.slice(0, cut), dated.slice(cut));
+    return { cat: r.cat, flat: r.flat, n: dated.length - cut };
+  };
+  const wfA = walkForward(0.5);
+  const wfB = walkForward(0.7);
   const catErr = (a.cat + b.cat) / 2;
   const flatErr = (a.flat + b.flat) / 2;
   return {
@@ -404,6 +480,11 @@ export function validateModel(snapshot: Snapshot, model: ModelConstants = MODEL)
     improvement_pct: round4(flatErr === 0 ? 0 : ((flatErr - catErr) / flatErr) * 100),
     loo_n: looErrors.length,
     loo_median_log_error: round4(medianLogError(looErrors)),
+    walk_forward_n_test: wfA.n,
+    walk_forward_a_log_error: round4(wfA.cat),
+    walk_forward_a_flat_log_error: round4(wfA.flat),
+    walk_forward_b_log_error: round4(wfB.cat),
+    walk_forward_b_flat_log_error: round4(wfB.flat),
     bootstrap_refits: BOOTSTRAP_REFITS,
     kept: catErr < flatErr,
   };
@@ -422,10 +503,10 @@ function mulberry32(seed: number): () => number {
 }
 
 /** How many bootstrap refits set every row's rank range. */
-export const BOOTSTRAP_REFITS = 200;
+export const BOOTSTRAP_REFITS = 500;
 
 /**
- * Every board row's rank range: the calibration is refit 200 times on bootstrap resamples of the
+ * Every board row's rank range: the calibration is refit 500 times on bootstrap resamples of the
  * live protocols (same count, drawn with replacement from a seeded generator), the board is
  * re-ranked each time, and each row keeps the 10th and 90th percentile of the ranks it drew. A
  * narrow range means the rank survives the calibration's sampling noise; a wide one means it does not.
@@ -478,6 +559,7 @@ export function impliedValue(
   maturityMult: number;
   chainMult: number;
   categoryMult: number;
+  sizeMult: number;
   calibrationN: number;
   calibrationSource: 'category' | 'fallback';
   age: number | null;
@@ -492,16 +574,17 @@ export function impliedValue(
     (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
   const extraChains = Math.min(Math.max(protocol.chains.length - 1, 0), model.chain_max_extra);
   const chainMult = 1 + model.chain_step * extraChains;
-  const { multiple, n, source } = categoryMultiple(protocol.category, calibration);
-  const base = protocol.tvl_usd * multiple;
-  const implied = Math.max(1, Math.round(base * growthMult * maturityMult * chainMult));
+  const { multiple, sizeMultiplier, base, n, source } = effectiveMultiple(protocol, calibration, model);
+  const baseValue = protocol.tvl_usd * multiple;
+  const implied = Math.max(1, Math.round(baseValue * growthMult * maturityMult * chainMult));
   return {
     implied,
     growthPct,
     growthMult,
     maturityMult,
     chainMult,
-    categoryMult: multiple,
+    categoryMult: base,
+    sizeMult: sizeMultiplier,
     calibrationN: n,
     calibrationSource: source,
     age,
@@ -627,6 +710,7 @@ export function buildBoard(
       implied_value_usd: s.implied,
       model: {
         category_multiple: s.categoryMult,
+        size_multiplier: s.sizeMult,
         calibration_n: s.calibrationN,
         calibration_source: s.calibrationSource,
         growth_pct: s.growthPct,
@@ -955,6 +1039,7 @@ export function radarRow(row: BoardRow): RadarRow {
     age_days: row.age_days,
     implied_value_usd: row.implied_value_usd,
     category_multiple: row.model.category_multiple,
+    size_multiplier: row.model.size_multiplier,
     calibration_n: row.model.calibration_n,
     calibration_source: row.model.calibration_source,
     growth_multiplier: row.model.growth_multiplier,

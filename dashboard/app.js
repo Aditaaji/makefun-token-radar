@@ -71,7 +71,8 @@
     var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
     var maturity = model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
     var multiple = mult === undefined ? row.category_multiple : mult;
-    return Math.max(1, Math.round(row.tvl_usd * multiple * growthMult * maturity * row.chain_multiplier));
+    var effective = Math.min(model.multiple_cap, Math.max(model.multiple_floor, multiple * (row.size_multiplier || 1)));
+    return Math.max(1, Math.round(row.tvl_usd * effective * growthMult * maturity * row.chain_multiplier));
   }
 
   function el(tag, attrs) {
@@ -271,10 +272,10 @@
   }
 
   function downloadCsv() {
-    var head = 'rank,name,category,chains,tvl_usd,change_7d,age_days,implied_value_usd,category_multiple,rank_lo,rank_hi,farm_cost_usd\n';
+    var head = 'rank,name,category,chains,tvl_usd,change_7d,age_days,implied_value_usd,category_multiple,size_multiplier,rank_lo,rank_hi,farm_cost_usd\n';
     var lines = sortedRows(rows()).map(function (r) {
       var q = function (v) { return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"'; };
-      return [r.display_rank, q(r.name), q(r.category || ''), q((r.chains || []).join(';')), r.tvl_usd, r.change_7d === null ? '' : r.change_7d, r.age_days === null ? '' : r.age_days, r.display_implied, r.category_multiple, r.rank_lo, r.rank_hi, r.farm_cost_usd].join(',');
+      return [r.display_rank, q(r.name), q(r.category || ''), q((r.chains || []).join(';')), r.tvl_usd, r.change_7d === null ? '' : r.change_7d, r.age_days === null ? '' : r.age_days, r.display_implied, r.category_multiple, r.size_multiplier, r.rank_lo, r.rank_hi, r.farm_cost_usd].join(',');
     });
     var blob = new Blob([head + lines.join('\n') + '\n'], { type: 'text/csv' });
     var a = document.createElement('a');
@@ -417,7 +418,7 @@
     return el('div', { class: 'panel' },
       el('div', { class: 'table-wrap' },
         el('table', null,
-          el('caption', { class: 'sub', text: 'Pre-token protocols, strongest implied value first. Select a row for its model and farm plan. Tick up to three rows to compare them. Rank range is the 10th–90th percentile rank over 200 bootstrap refits of the calibration.' + (state.sandbox ? ' Sandbox is on: values and ranks are recomputed with your constants, not the fitted ones.' : '') }),
+          el('caption', { class: 'sub', text: 'Pre-token protocols, strongest implied value first. Select a row for its model and farm plan. Tick up to three rows to compare them. Rank range is the 10th–90th percentile rank over ' + DATA.validation.bootstrap_refits + ' bootstrap refits of the calibration.' + (state.sandbox ? ' Sandbox is on: values and ranks are recomputed with your constants, not the fitted ones.' : '') }),
           el('thead', null, el('tr', null,
             sortHeader('implied', 'Rank'),
             sortHeader('name', 'Protocol'),
@@ -447,7 +448,7 @@
     var clear = el('button', { class: 'button', type: 'button', text: 'Clear comparison', onclick: function () { state.compare = []; render(); } });
     return el('section', { class: 'panel model' },
       el('h2', { text: 'Compare (' + picked.length + ' of 3)' }),
-      el('p', { class: 'sub', text: 'The same model, side by side. Rank range is the 10th–90th percentile over 200 bootstrap refits; farm cost is the plan\u2019s total gas.' }),
+      el('p', { class: 'sub', text: 'The same model, side by side. Rank range is the 10th–90th percentile over ' + DATA.validation.bootstrap_refits + ' bootstrap refits; farm cost is the plan\u2019s total gas.' }),
       el('div', { class: 'table-wrap' },
         el('table', null,
           el('thead', null, head),
@@ -456,6 +457,7 @@
             rowFor('Implied value', function (r) { return fmtUsd(r.display_implied); }),
             rowFor('TVL', function (r) { return fmtUsd(r.tvl_usd); }),
             rowFor('Category multiple', function (r) { return fmtMult(r.category_multiple); }),
+            rowFor('Size adjustment', function (r) { return fmtMult(r.size_multiplier); }),
             rowFor('7-day growth', function (r) { return fmtPct(r.change_7d); }),
             rowFor('Age', function (r) { return fmtAge(r.age_days); }),
             rowFor('Farm cost', function (r) { return '$' + r.farm_cost_usd + ' over ' + r.hold_days + 'd'; })
@@ -516,9 +518,9 @@
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x category_multiple x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x (1 + 0.02 x min(chains - 1, 5)) )'
+        'implied = round( tvl_usd x category_multiple x size_adjustment x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x (1 + 0.02 x min(chains - 1, 5)) )'
       ),
-      el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The category multiple is the median market-cap-to-TVL of the live protocols in that category, taken in log space and shrunk toward the global median (' + DATA.calibration.fallback.toFixed(2) + 'x) with ' + m.calibration_shrink_k + ' pseudo-observations, so a category with one live protocol sits almost at the global median; a category with none uses the global median. Multiples are clamped to [' + m.multiple_floor + ', ' + m.multiple_cap + ']. A protocol on more chains is worth a little more: each extra chain up to five adds 2%. The early radar is every pre-token protocol below the watchlist floor, and the live-token protocols are set aside with their market caps shown.' })
+      el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The category multiple is the median market-cap-to-TVL of the live protocols in that category, taken in log space and shrunk toward the global median (' + DATA.calibration.fallback.toFixed(2) + 'x) with ' + m.calibration_shrink_k + ' pseudo-observations, so a category with one live protocol sits almost at the global median; a category with none uses the global median. The size adjustment is 10 ^ (' + DATA.calibration.size_slope.toFixed(2) + ' x (log10(TVL) - ' + DATA.calibration.size_center.toFixed(2) + ')): big protocols trade at a lower market-cap-to-TVL, so a large TVL is discounted and a small one is marked up, and the effective multiple is clamped to [' + m.multiple_floor + ', ' + m.multiple_cap + ']. A protocol on more chains is worth a little more: each extra chain up to five adds 2%. The early radar is every pre-token protocol below the watchlist floor, and the live-token protocols are set aside with their market caps shown.' })
     );
   }
 
@@ -542,7 +544,7 @@
     ));
     return el('section', { class: 'panel model' },
       el('h2', { text: 'Category calibration, from the live market' }),
-      el('p', { class: 'sub', text: 'Each multiple is the median market-cap-to-TVL of the live protocols in that category, taken in log space and shrunk toward the global median with ' + DATA.model.calibration_shrink_k + ' pseudo-observations, computed from this snapshot at run time. All ' + entries.length + ' categories with a live protocol are shown.' }),
+      el('p', { class: 'sub', text: 'Each multiple is the median market-cap-to-TVL of the live protocols in that category, taken in log space and shrunk toward the global median with ' + DATA.model.calibration_shrink_k + ' pseudo-observations, computed from this snapshot at run time. All ' + entries.length + ' categories with a live protocol are shown. Each row\u2019s multiple is then adjusted for its own TVL (size slope ' + DATA.calibration.size_slope.toFixed(2) + ' per dex, centred at log10(TVL) ' + DATA.calibration.size_center.toFixed(2) + '), so the table shows the category multiple before that adjustment.' }),
       el('div', { class: 'table-wrap' },
         el('table', null,
           el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Category' }), el('th', { scope: 'col', text: 'Multiple' }), el('th', { scope: 'col', text: 'Live protocols' }))),
@@ -562,9 +564,11 @@
     tbody.appendChild(rowFor('Split-half B (fit odd, test even)', v.oos_split_b_log_error.toFixed(4), v.flat_split_b_log_error.toFixed(4)));
     tbody.appendChild(rowFor('Mean of both splits', v.oos_median_log_error.toFixed(4), v.flat_median_log_error.toFixed(4)));
     tbody.appendChild(rowFor('Leave-one-out (n=' + v.loo_n + ')', v.loo_median_log_error.toFixed(4), '—'));
+    tbody.appendChild(rowFor('Walk-forward, fit older half, test newer (n=' + v.walk_forward_n_test + ')', v.walk_forward_a_log_error.toFixed(4), v.walk_forward_a_flat_log_error.toFixed(4)));
+    tbody.appendChild(rowFor('Walk-forward, fit older 70%, test newest 30%', v.walk_forward_b_log_error.toFixed(4), v.walk_forward_b_flat_log_error.toFixed(4)));
     return el('section', { class: 'panel model' },
       el('h2', { text: 'The model, tested before it prices anything' }),
-      el('p', { class: 'sub', text: 'Median absolute log error predicting a live protocol\u2019s market cap from its TVL (predicted mcap = TVL x multiple). The fitted multiples are tested out of sample in both split directions against one flat multiple for every category, and leave-one-out holds each protocol out of the calibration that prices it. The fitted model beats the flat baseline by ' + v.improvement_pct + '% on the mean of both splits, so the board keeps it (verdict: ' + (v.kept ? 'kept' : 'not kept') + '). The errors are large in absolute terms — market-cap-to-TVL varies by orders of magnitude — which is why every row also carries a rank range from ' + v.bootstrap_refits + ' bootstrap refits instead of a false-precision point rank.' }),
+      el('p', { class: 'sub', text: 'Median absolute log error predicting a live protocol\u2019s market cap from its TVL (predicted mcap = TVL x multiple). The fitted multiples are tested out of sample in both split directions against one flat multiple for every category, leave-one-out holds each protocol out of the calibration that prices it, and walk-forward fits on the older protocols and tests on the newer ones, so a model that only works on a random split cannot pass. The fitted model beats the flat baseline by ' + v.improvement_pct + '% on the mean of both splits, so the board keeps it (verdict: ' + (v.kept ? 'kept' : 'not kept') + '). The errors are large in absolute terms — market-cap-to-TVL varies by orders of magnitude — which is why every row also carries a rank range from ' + v.bootstrap_refits + ' bootstrap refits instead of a false-precision point rank.' }),
       el('div', { class: 'table-wrap' },
         el('table', null,
           el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Test' }), el('th', { scope: 'col', text: 'Fitted multiples' }), el('th', { scope: 'col', text: 'Flat baseline' }))),
@@ -637,16 +641,17 @@
       el('div', { class: 'equation' },
         el('div', null, el('span', { text: 'TVL' }), el('b', { class: 'num', text: fmtUsd(row.tvl_usd) })),
         el('div', null, el('span', { text: 'Category multiple' }), el('b', { class: 'num', text: fmtMult(row.category_multiple) + ' (' + calNote + ')' })),
+        el('div', null, el('span', { text: 'Size adjustment' }), el('b', { class: 'num', text: fmtMult(row.size_multiplier) })),
         el('div', null, el('span', { text: 'Seven-day growth' }), el('b', { class: 'num', text: fmtPct(row.change_7d) })),
         el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
         el('div', null, el('span', { text: 'Growth multiplier' }), el('b', { class: 'num', text: fmtMult(row.growth_multiplier) })),
         el('div', null, el('span', { text: 'Maturity multiplier' }), el('b', { class: 'num', text: fmtMult(row.maturity_multiplier) })),
         el('div', null, el('span', { text: 'Chain multiplier' }), el('b', { class: 'num', text: fmtMult(row.chain_multiplier) })),
-        el('div', null, el('span', { text: 'Rank range (200 refits)' }), el('b', { class: 'num', text: row.rank_lo + '–' + row.rank_hi })),
+        el('div', null, el('span', { text: 'Rank range (' + DATA.validation.bootstrap_refits + ' refits)' }), el('b', { class: 'num', text: row.rank_lo + '–' + row.rank_hi })),
         el('div', null, el('span', { text: 'Farm cost' }), el('b', { class: 'num', text: '$' + row.farm_cost_usd + ' over ' + row.hold_days + ' days' })),
         el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
-      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The rank range is the 10th–90th percentile rank over 200 bootstrap refits of the calibration: rank ' + row.rank + ' holds between ' + row.rank_lo + ' and ' + row.rank_hi + ' under resampling. The page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === shownImplied ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
+      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The rank range is the 10th–90th percentile rank over ' + DATA.validation.bootstrap_refits + ' bootstrap refits of the calibration: rank ' + row.rank + ' holds between ' + row.rank_lo + ' and ' + row.rank_hi + ' under resampling. The page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === shownImplied ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm plan' }),

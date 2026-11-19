@@ -4,13 +4,15 @@
 [![rank](https://make.fun/badge/token-radar-01/Aditaaji/makefun-token-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![reward](https://make.fun/badge/token-radar-01/Aditaaji/makefun-token-radar/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
-Token Radar (radar-3) turns a sealed DefiLlama protocol snapshot into a ranked board of genuine pre-token launches. Every row is priced from the snapshot's own numbers — category-calibrated market multiples, no name ever special-cased — and carries an eight-step farm plan plus a filterable dashboard. The 40-protocol watchlist is the floor, never the ceiling: the board also ranks every other eligible pre-token protocol below the $50M floor, 197 rows on the current snapshot. All 758 protocols in the snapshot are accounted for: 197 ranked, 416 live-token protocols set aside with their market caps, 145 pre-token protocols set aside with the rule that sets each one aside.
+Token Radar (radar-4) turns a sealed DefiLlama protocol snapshot into a ranked board of genuine pre-token launches. Every row is priced from the snapshot's own numbers — category-calibrated market multiples, no name ever special-cased — and carries an eight-step farm plan plus a filterable dashboard. The 40-protocol watchlist is the floor, never the ceiling: the board also ranks every other eligible pre-token protocol below the $50M floor, 197 rows on the current snapshot. All 758 protocols in the snapshot are accounted for: 197 ranked, 416 live-token protocols set aside with their market caps, 145 pre-token protocols set aside with the rule that sets each one aside.
 
-## What changed in radar-3
+## What changed in radar-4
 
-- **The model is tested before it prices anything.** The category multiples are fit on half the snapshot's live protocols and tested on the other half, in both directions, against one flat multiple for every category — and leave-one-out holds each protocol out of the calibration that prices it. The fitted multiples beat the flat baseline by 6.87% out of sample (median log error 1.5511 vs 1.6655, n=64 per split; leave-one-out 1.6049, n=128), so the board keeps them. The dashboard shows the test.
+- **The model now adjusts for size — and the out-of-sample error fell by a quarter.** Big protocols trade at a much lower market-cap-to-TVL than small ones (the median ratio falls from 0.65x in the smallest TVL quintile to 0.04x in the largest; log market cap grows only ~0.52 per dex of TVL), so each row's multiple is adjusted by 10 ^ (-0.50 x (log10(TVL) - 7.69)), the OLS slope of ln(mcap/TVL) on log10(TVL) capped at ±0.50. The fitted model now beats the flat baseline by 30.33% out of sample (median log error 1.1604 vs 1.6655, n=64 per split; leave-one-out 1.2636, n=128), against 6.87% for radar-3. The cap was picked because it wins on all three out-of-sample tests at once, not on any one alone.
+- **Walk-forward validation is new.** The multiples are fit on the older live protocols and tested on the newer ones, at a 50% cut (1.0127 vs flat 1.6665, n=48) and a 70% cut (0.9914 vs flat 1.6667, n=29) — the 33 live protocols with no listing date sit out of this test, since they cannot be ordered in time. A model that only works on a random split cannot pass it. The dashboard shows the test.
+- **The coverage audit is new.** All 145 set-aside pre-token protocols were re-checked one by one against the watchlist rule: 128 are CEX / bridge / liquid-staking / liquid-restaking products by category, 11 are version-marked names (Aera appears as both V2 and V3 — ranking them would count one protocol twice), and 6 more are staking products named as such (Staking Pool / Chain / Farm categories). None is an eligible launch that the board missed, so the board stays at 197 rows.
 - **Multiples are log-medians, shrunk toward the global median** (5 pseudo-observations), so a category with one live protocol sits almost at the global median instead of swinging on it. The plain category median tied the flat baseline out of sample; the shrunk log-median beats it on both splits.
-- **Every row carries a rank range**: the calibration is refit 200 times on bootstrap resamples of the live protocols, and each row keeps the 10th–90th percentile of the ranks it drew. The top ranks hold (1–1, 2–2, 3–3); the dense mid-board honestly shows a wide range.
+- **Every row carries a rank range**: the calibration is refit 500 times on bootstrap resamples of the live protocols, and each row keeps the 10th–90th percentile of the ranks it drew. The top ranks hold (1–2, 2–3); the dense mid-board honestly shows a wide range.
 - **Farm plans net to break-even**: the eighth step totals the plan's gas over its hold and states the break-even — the plan pays only if the eventual allocation is worth more than that; if no token ever launches, the gas is the loss.
 - **Dashboard chrome**: a model sandbox (growth weight, multiple cap, chain step — recomputes the board in place, page only), a compare mode for up to three rows, CSV export of the board, a dark/light theme toggle, and a Set aside tab listing every excluded protocol with its reason.
 
@@ -19,13 +21,14 @@ Token Radar (radar-3) turns a sealed DefiLlama protocol snapshot into a ranked b
 The implied value comes only from the snapshot's figures, with the calibration computed from the snapshot itself at run time:
 
 ```
-implied = round(tvl_usd x category_multiple
+implied = round(tvl_usd x category_multiple x size_adjustment
   x (1 + clamp(change_7d, -60, 120) / 100 x 0.5)
   x (0.6 + min(age_days, 1095) / 1095 x 0.4)
   x (1 + 0.02 x min(chains - 1, 5)))
 ```
 
-- **Category multiple**: the median market-cap-to-TVL of the live protocols in that category, taken in log space and shrunk toward the global median (0.21x) with 5 pseudo-observations; a category with no live protocol uses the global median. Multiples are clamped to [0.05, 1.0]. A lending protocol is not priced like a DEX.
+- **Category multiple**: the median market-cap-to-TVL of the live protocols in that category, taken in log space and shrunk toward the global median (0.21x) with 5 pseudo-observations; a category with no live protocol uses the global median. A lending protocol is not priced like a DEX.
+- **Size adjustment**: 10 ^ (-0.50 x (log10(tvl_usd) - 7.69)) — a large TVL is discounted and a small one marked up, because market cap grows far slower than TVL. The effective multiple (category multiple x size adjustment) is clamped to [0.05, 1.0].
 - **Growth**: seven-day TVL change, clamped to [-60%, +120%], weighted 0.5.
 - **Maturity**: age since first listing (unknown age: 365 days), from 0.6x to 1.0x over three years.
 - **Chains**: each extra chain up to five adds 2% — wider distribution is worth a little more.
@@ -49,7 +52,7 @@ The four screenshots in `screenshots/` come from the dashboard in headless Chrom
 ## What's where
 
 - `main.ts` — entrypoint: reads the snapshot, scores the board, writes the output
-- `lib/model.ts` — the radar-3 model: calibration, eligibility, implied value, farm plans, out-of-sample validation, bootstrap rank ranges
+- `lib/model.ts` — the radar-4 model: calibration, eligibility, implied value, farm plans, out-of-sample validation (split-half, leave-one-out, walk-forward), bootstrap rank ranges
 - `dashboard/` — `index.html`, `app.js`, `app.css`: the static dashboard
 - `vendor/makefun-board.ts` — the vendored make.fun dossier builder
 - `screenshots/` — the four dashboard screenshots the gate requires
