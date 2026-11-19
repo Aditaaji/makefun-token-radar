@@ -1,5 +1,6 @@
 /* Token Radar's plain theme. Five palette values, two radii and two families carry the whole
-   look; everything else is spacing, a hairline and a type step. */
+   look; everything else is spacing, a hairline and a type step. A dark palette rides on the same
+   variables under [data-theme="dark"], toggled from the header; light stays the default. */
 :root{
   --canvas:#f2f5f3;
   --surface:#ffffff;
@@ -21,6 +22,16 @@
   --step-7:48px;
 }
 
+html[data-theme="dark"]{
+  color-scheme:dark;
+  --canvas:#101815;
+  --surface:#182420;
+  --ink:#e8efec;
+  --muted:#9db0a7;
+  --border:#2c3d36;
+  --accent:#4cc39a;
+  --negative:#e07a6b;
+}
 *{
   box-sizing:border-box;
 }

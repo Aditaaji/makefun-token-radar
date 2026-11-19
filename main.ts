@@ -98,7 +98,8 @@ function main(): void {
   );
 
   const summary = [
-    'token radar: ' + snapshot.protocols.length + ' protocols, ' + snapshot.watchlist.length + ' on the watchlist, ' + board.length + ' rows scored (' + radar.early_size + ' early, ' + radar.live_size + ' live set aside)',
+    'token radar: ' + snapshot.protocols.length + ' protocols, ' + snapshot.watchlist.length + ' on the watchlist, ' + board.length + ' rows scored (' + radar.early_size + ' early, ' + radar.live_size + ' live set aside, ' + radar.accounting.excluded + ' pre-token set aside with a reason)',
+    'token radar: validation: split-half log error ' + radar.validation.oos_median_log_error + ' vs flat ' + radar.validation.flat_median_log_error + ' (' + radar.validation.improvement_pct + '% better, n=' + radar.validation.oos_n_test + '), leave-one-out ' + radar.validation.loo_median_log_error + ' (n=' + radar.validation.loo_n + '), ranks from ' + radar.validation.bootstrap_refits + ' bootstrap refits, model ' + (radar.validation.kept ? 'kept' : 'NOT kept'),
     'token radar: wrote ' + path.join(out, 'board.json') + ', ' + path.join(out, 'data.js') + ', ' + path.join(out, 'dashboard') + ' (3 files), ' + path.join(out, 'screenshots') + ' (' + shots.length + ' images) and ' + path.join(out, 'dossier.json'),
   ];
   process.stdout.write(summary.join('\n') + '\n');
